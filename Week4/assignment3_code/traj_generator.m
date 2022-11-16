@@ -1,4 +1,4 @@
-unction [ desired_state ] = traj_generator(t, state, waypoints)
+function [ desired_state ] = traj_generator(t, state, waypoints)
 % TRAJ_GENERATOR: Generate the trajectory passing through all
 % positions listed in the waypoints list
 %
@@ -40,7 +40,7 @@ unction [ desired_state ] = traj_generator(t, state, waypoints)
 %         t = traj_time(end);
 %     end
 %     t_index = find(traj_time >= t,1);
-% 
+%
 %     if(t_index > 1)
 %         t = t - traj_time(t_index-1);
 %     end
@@ -55,15 +55,14 @@ unction [ desired_state ] = traj_generator(t, state, waypoints)
 %     desired_state.yaw = 0;
 %     desired_state.yawdot = 0;
 % end
-% %
+%
 
 
 %% Fill in your code here
-% Minimum snap trajectory
+% Minimum Snap trajectory algorithm
 % N-1 smooth piecewise 7th order polynomials for N waypoints
-% Pi = ai1 + ai2*tau + ai3*tau^2 + ai4*tau^3 + ai5*tau^4 + ai6*tau^5 + ai7*tau^6 + ai8*tau^7
-% i = 1:n
-% tau = (t-S(i-1))/Ti only get 2 value 0 or 1
+% Pi = ai1 + ai2*t + ai3*t^2 + ai4*t^3 + ai5*t^4 + ai6*t^5 + ai7*t^6 + ai8*t^7
+% where i = 1:n; t= 0 or 1
 
 persistent coef_x coef_y coef_z waypoints0 traj_time d0
 if nargin > 2
@@ -80,11 +79,12 @@ if nargin > 2
     
 else
     % provide the trajectory point based on the coefficients
+    
     if(t > traj_time(end))
         t = traj_time(end) - 0.0001;
     end
     
-    t_index = find(traj_time >= t,1)-1; %Find indices and values of nonzero elements between 1:n
+    t_index = find(traj_time >= t,1)-1; %between 1:n
     
     if (t_index == 0)
         t_index = 1;
@@ -119,15 +119,12 @@ end
 end
 
 function [T] = polyT(n, k, t)
-% One utility function we are going to build to help us with the above
-% is creating the polynom coefficient-coefficient vector (for lack of better name,
-% these are the actual values you would put into the matrix raws). 
-% To understand what this mean here is an example: Lets say I want to get a vector of 8 variables 
-% (for a 7th order polynom) for the first derivative when t=1. 
-% This utility function should return a vector of: 0 1 2 3 4 5 6 7. 
-% When we build matrix A we will use this utility function to create those vector for us.
-% n is the polynom number of coefficients, k is the requested derivative and t is the actual value of t 
-% (this can be anything, not just 0 or 1).
+% One utility function we are going to build to help us with the above is creating the polynom coefficient-coefficient vector 
+% (for lack of better name, these are the actual values you would put into the matrix raws)
+% To understand what this mean here is an example: Lets say I want to get a vector of 8 variables (for a 7th order polynom) for the first derivative when t=1. This utility function should return a vector of: 0 1 2 3 4 5 6 7. When we build matrix A we will use this utility function to create those vector for us.
+% n is the polynom number of coefficients
+% k is the requested derivative
+% t is the actual value of t (this can be anything, not just 0 or 1).
 T = zeros(n,1);
 D = zeros(n,1);
 
@@ -153,69 +150,67 @@ for i=1:n
 end
 
 T = T';
-
 end
 
 function [coef, A, b] = getCoef(waypoints)
 % Creates matrix A, b and solves for the coefficient vector coef.
-
+% Index will start from 1
 n = size(waypoints,1)-1;
 
-% b matrix is easy, it is just the waypoints repeated in a patter
-% (note waypoints is passed one component (x,y,z) at a time, so
-% this function would be called three times (once for x, y, and z)
+% matrix b = [w1 w2 ... wn, w2 w3 ... wn+1, zeros(1,6*n)]
+% 
 b = zeros(1,8*n);
 for i=1:n
-    b(1,i) = waypoints(i); %eq 19
-    b(1,i+n) = waypoints(i+1);  %eq 19
+    b(i) = waypoints(i);
+    b(i+n) = waypoints(i+1);
 end
 
 % A matrix is built up from all the constraints
 A=zeros(8*n,8*n);
 
-% Constraint 1 ==> Pi(t=Si) = wi for all i=1:n
-% Ex: P1(0) = w1, a11 = w1
-% Ex: A(1,:)=[1 0 0 0 0 0 0 0 zero(1,8*(n-1))]
+% Equation 19.1: P_i(S_i) = w_i for all i=1:n
+% Ex: P_1(S_1) = w_1 = a11 
+% Ex: A(1,:)=[1 0 0 0 0 0 0 0 zeros(1,8*(n-1))]
 % Ex: b(1)=w1
 for i=1:n
-    A(i,((i-1)*8)+1:i*8) = polyT(8,0,0); %eq 19.1
+    A(i,((i-1)*8)+1:i*8) = polyT(8,0,0);
 end
 
-% Constraint 2 ==> Pi(t=1) = wi+1 for all i=1:n
+% Equation 19.2: P_i(S_i+1) = w_i+1 for all i=1:n
 % Ex: P1(1) = w2, a11+a12+…+a18 = w2
-% Ex: A(n+1,:)=[1 1 1 1 1 1 1 1 zero(1,8*(n-1))]
+% Ex: A(n+1,:)=[1 1 1 1 1 1 1 1 zeros(1,8*(n-1))]
 % Ex: b(n+1)=w2
 for i=1:n
-    A(i+n,((i-1)*8)+1:i*8) = polyT(8,0,1); %eq 19.2
+    A(i+n,((i-1)*8)+1:i*8) = polyT(8,0,1);
 end
 
-% Constraint 3 ==> P1_k(t=0) = 0 for all k=1..3 (derivative)
-% Ex: P1_1(t=0)=0, a12 = 0
-% Ex: A(2*n+1,:)=[0 1 0 0 0 0 0 0 zero(1,8*(n-1))]
-% Ex: b(2*n+1)=0
+% Equation 20.1: P1_k(S1) = 0 for all k=1..3 (derivative)
+% Ex: P1_1(S1) = 0 = a12
+% Ex: A(2*n+1,:) = [0 1 0 0 0 0 0 0 zeros(1,8*(n-1))]
+% Ex: b(2*n+1) = 0
 for k=1:3
-    A(2*n+k,1:8) = polyT(8,k,0); %eq20.1
+    A(2*n+k,1:8) = polyT(8,k,0);
 end
 
-% Constraint 4 ==> Pn_k(t=1) = 0 for all k=1..3 (derivative)
-% Ex: Pn_1(t=1)=0, a12 + 2a13 + 3a14 +…+ 7a18 = 0
-% Ex: A(2*n+3+1,:)=[zeros(1,8*(n-1)) 0 1 2 3 4 5 6 7]
-% Ex: b(2*n+3+1)=0
+% Equation 20.2: Pn_k(S_n+1) = 0 for all k=1..3 (derivative)
+% Ex: Pn_1(S_n+1) = 0 = a_n2 + 2*a_n3 + 3*a_n4 +…+ 7*a_n8
+% Ex: A(2*n+3+1,:) = [zeros(1,8*(n-1)) 0 1 2 3 4 5 6 7]
+% Ex: b(2*n+3+1) = 0
 for k=1:3
-    A(2*n+3+k,(end-7):end) = polyT(8,k,1); %eq20.2
+    A(2*n+3+k,(end-7):end) = polyT(8,k,1);
 end
 
-% Constraint 5 ==> Pi-1_k(t=1) = Pi_k(t=0) for all i=2..n and k=1..6
-% Ex: P1_1(t=1)-P2_1(t=0) = 0, a12 + 2a13 +…+7a18 - a22 = 0
-% Ex: A(2*n+6+1,)=[0 1 2 3 4 5 6 7 0 -1 0 0 0 0 0 0 zeros]
-% Ex: b(2*n+6+1)=0
+% Equation 21: Pi-1_k(S_i) = Pi_k(S_i) for all i=2..n and k=1..6
+% Ex: P1_1(S_2) - P2_1(S_2) = 0 = a12 + 2a13 +…+7a18 - a22
+% Ex: A(2*n+6+1,)=[0 1 2 3 4 5 6 7 0 -1 0 0 0 0 0 0 zeros(1,8*(n-2))]
+% Ex: b(2*n+6+1) = 0
 for i=2:n
     for k=1:6
-        A(2*n+6+(i-2)*6+k, (i-2)*8+1:((i-2)*8+n*n)) = [polyT(8,k,1) -polyT(8,k,0)];
+        A(2*n+6+(i-2)*6+k, (i-2)*8+1:((i-2)*8+n*n)) = [polyT(8,k,1) -polyT(8,k,0)]; % "-" must be written close to the right term to avoid causing errors
     end
 end
 
-% Solve for the coefficients
+% Now solve for the coefficients
 coef = A\b';
 
 end
